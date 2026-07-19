@@ -1,32 +1,39 @@
-# TODO — Fix Profile Picture Persistence
+# UI/UX Redesign Audit — Implementation TODO
 
-## Step 1 — Investigate current profile picture flow
-- [x] Read backend routes for auth and image upload/retrieval.
-- [ ] Locate where UI sets avatar image URL and how it loads profile data after login/refresh.
+## Step 1: Global UI system improvements (safe)
+- [x] Add focus-visible ring styles for buttons, inputs, links.
+- [x] Make `table.data thead th` sticky.
+- [x] Add desktop sidebar collapsed mode styles + smooth animation.
 
-## Step 2 — Validate DB linkage & persistent storage
-- [ ] Confirm `registrants.photo_path` column exists and is written during `/upload/photo`.
-- [ ] Confirm uploaded files are written under persistent `uploads/` directory.
-- [ ] Confirm `/api/v1/images/{user_id}` retrieves from `registrants.photo_path` and falls back only when empty/missing.
 
-## Step 3 — Fix any URL generation mismatch
-- [x] Ensure backend image retrieval uses `photo_path` and returns default avatar only when no photo exists.
-- [ ] Ensure frontend profile page uses the DB-backed photo URL (not frontend-only state).
+## Step 2: Dashboard animated counters
+- [ ] Implement `App.animateNumber()` helper (or in shared.js) using `requestAnimationFrame`.
+- [ ] Apply animated counters to:
+  - [ ] Student overview stat cards
+  - [ ] Staff/Admin overview stat cards
 
-## Step 4 — Remove conflicting/duplicate profile image logic
-- [ ] Search for other avatar/photo logic in frontend JS and other backend routes.
-- [ ] Ensure no legacy logic overwrites avatar state with default.
+## Step 3: Tables: loading/empty/search consistency
+- [ ] Add table-wrap scrollbar polish.
+- [ ] Add consistent empty/loading states where JS already renders them.
 
-## Step 5 — Verification tests
-- [ ] Test with ADMIN, STAFF, STUDENT accounts:
-  - [ ] Logout/Login
-  - [ ] Browser Refresh
-  - [ ] Browser Close/Reopen
-  - [ ] Server Restart
-  - [ ] Token Refresh
-- [ ] Verify uploaded files remain accessible after server restart.
+## Step 4: Button standardization
+- [ ] Ensure consistent focus/hover/active states across all `.btn*`.
 
-## Step 6 — Regression & hardening
-- [ ] Add/adjust cache headers (avoid persistent caching of default when photo exists).
-- [ ] Add basic automated checks (curl or existing test suite).
+## Step 5: Form icon standardization (JS-generated)
+- [ ] Add icon-inside-input utility classes in CSS.
+- [ ] Update key JS-generated modal/form templates in shared.js + admin.js to use the icon classes.
+
+## Step 6: Scanner pages visual consistency
+- [ ] Move duplicated kiosk styles into shared CSS (only if safe).
+- [ ] Keep scanner JS logic untouched.
+
+## Step 7: Notification dropdown audit
+- [ ] Verify notification UI meets requirements (dropdown, unread states, animation).
+
+## Step 8: Audit sweep
+
+## Step 9: Testing + reporting
+- [ ] Manually open key routes and validate no feature breaks.
+- [ ] Run available automated tests.
+- [ ] Generate list of modified files.
 

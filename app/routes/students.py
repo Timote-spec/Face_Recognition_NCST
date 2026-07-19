@@ -51,6 +51,7 @@ def _safe_attendance_response(r) -> AttendanceLogResponse:
         time_out=r["time_out"],
         attendance_status=r["attendance_status"],
         date=r["date"],
+        scan_method=r["scan_method"],
     )
 
 ALLOWED_PROFILE_FIELDS = {
@@ -67,7 +68,7 @@ def get_my_profile(_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admins should use admin endpoints")
     conn = get_db_connection()
     row = conn.execute(
-        """SELECT user_id, first_name, last_name, role, department_section, status, email, course, year_level, section, contact_number, address, emergency_contact, created_at
+        """SELECT user_id, first_name, last_name, role, department_section, status, email, course, year_level, section, contact_number, address, emergency_contact, rfid_uid, created_at
               FROM registrants
              WHERE user_id = ?""",
         (_user["user_id"],),
@@ -88,6 +89,7 @@ def get_my_profile(_user: dict = Depends(get_current_user)):
         contact_number=row["contact_number"],
         address=row["address"],
         emergency_contact=row["emergency_contact"],
+        rfid_uid=row["rfid_uid"],
         photo_url=f"/api/v1/images/{row['user_id']}",
         created_at=row["created_at"],
     )
@@ -213,7 +215,7 @@ def get_my_attendance(
         sql = """SELECT a.log_id, a.user_id,
                         r.first_name || ' ' || r.last_name AS user_name,
                         a.logged_at, a.device_id,
-                        a.time_in, a.time_out, a.attendance_status, a.date
+                        a.time_in, a.time_out, a.attendance_status, a.date, a.scan_method
                    FROM attendance_logs a
                    JOIN registrants r ON r.user_id = a.user_id
                   WHERE a.user_id = ?"""
@@ -262,7 +264,7 @@ def export_my_attendance(
     date_to: str | None = Query(None),
 ):
     conn = get_db_connection()
-    sql = """SELECT a.log_id, r.first_name || ' ' || r.last_name AS user_name, a.date, a.time_in, a.time_out, a.attendance_status, a.logged_at, a.device_id
+    sql = """SELECT a.log_id, r.first_name || ' ' || r.last_name AS user_name, a.date, a.time_in, a.time_out, a.attendance_status, a.logged_at, a.device_id, a.scan_method
                 FROM attendance_logs a JOIN registrants r ON r.user_id = a.user_id
                WHERE a.user_id = ?"""
     params = [_user["user_id"]]
@@ -277,9 +279,9 @@ def export_my_attendance(
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Log ID", "Name", "Date", "Time In", "Time Out", "Status", "Logged At", "Device"])
+    writer.writerow(["Log ID", "Name", "Date", "Time In", "Time Out", "Status", "Logged At", "Device", "Method"])
     for r in rows:
-        writer.writerow([r["log_id"], r["user_name"], r["date"], r["time_in"], r["time_out"], r["attendance_status"], r["logged_at"], r["device_id"]])
+        writer.writerow([r["log_id"], r["user_name"], r["date"], r["time_in"], r["time_out"], r["attendance_status"], r["logged_at"], r["device_id"], r["scan_method"]])
     headers = {"Content-Disposition": f"attachment; filename=my-attendance-{_user['user_id']}.csv"}
     return Response(content=output.getvalue(), media_type="text/csv", headers=headers)
 

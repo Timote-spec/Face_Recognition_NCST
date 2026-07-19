@@ -92,8 +92,12 @@
         const rows = data.items || [];
         if (!rows.length) { wrap.innerHTML = App.emptyState("No attendance records", "No records match the current filters.", I.calendar); pager.innerHTML = ""; return; }
         const photo = (uid) => `<img src="${App.API}/images/${App.esc(uid)}" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;background:var(--surface-2);vertical-align:middle;margin-right:6px;" onerror="this.style.display='none'">`;
+        const methodBadge = (m) => {
+          const colors = { Face: "primary", QR: "warning", RFID: "primary" };
+          return App.badge(colors[m] || "muted", m || "—", true);
+        };
         const head = `<thead><tr>
-          <th></th><th>${role === "ADMIN" ? "Student" : "Name"}</th><th>ID</th><th>Role</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Status</th><th>Device</th>
+          <th></th><th>${role === "ADMIN" ? "Student" : "Name"}</th><th>ID</th><th>Role</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Status</th><th>Method</th><th>Device</th>
           ${role === "ADMIN" ? "<th></th>" : ""}</tr></thead>`;
         const body = rows.map((r) => `<tr>
           <td>${photo(r.user_id)}</td>
@@ -104,6 +108,7 @@
           <td>${App.esc(r.time_in || "—")}</td>
           <td>${App.esc(r.time_out || "—")}</td>
           <td>${App.statusBadge(r.attendance_status)}</td>
+          <td>${methodBadge(r.scan_method)}</td>
           <td class="cell-sub">${App.esc(r.device_id || "—")}</td>
           ${role === "ADMIN" ? `<td><button class="btn btn-ghost btn-sm" onclick="Shared.correctAttendance(${r.log_id})">${svg(I.edit)}</button></td>` : ""}
         </tr>`).join("");
@@ -661,11 +666,15 @@
       try {
         const [live, d] = await Promise.all([
           App.api("/dashboard/live"),
-          silent ? null : App.api("/admin/dashboard/stats").catch(() => null),
+          App.api("/admin/dashboard/stats").catch(() => null),
         ]);
         if (silent && !d) return;
         const dist = (d && d.role_distribution) || [];
         const donut = buildDonut(dist);
+        const methodBadge = (m) => {
+          const colors = { Face: "primary", QR: "warning", RFID: "primary" };
+          return App.badge(colors[m] || "muted", m || "—", true);
+        };
         wrap.innerHTML = `
           <div class="grid grid-4 mb-3">
             ${Shared.statCard("Total Students", live.total_students, "primary", I.users, "Active")}
@@ -673,14 +682,22 @@
             ${Shared.statCard("Absent Today", live.absent_today, live.absent_today > 0 ? "danger" : "muted", I.xCircle, "No attendance today")}
             ${Shared.statCard("Late Today", live.late_today, live.late_today > 0 ? "warning" : "muted", I.clock, "Arrived after cutoff")}
           </div>
+          ${d ? `<div class="grid grid-4 mb-3">
+            ${Shared.statCard("RFID Today", d.rfid_today, "primary", I.plus, "RFID scans today")}
+            ${Shared.statCard("RFID Weekly", d.rfid_weekly_scans, "primary", I.plus, "RFID scans (last 7 days)")}
+            ${Shared.statCard("RFID Monthly", d.rfid_monthly_scans, "primary", I.plus, "RFID scans (this month)")}
+            ${Shared.statCard("Total Today", d.rfid_today + d.face_today + d.qr_today, "success", I.check, "All methods")}
+          </div>` : ""}
+
           <div style="font-size:0.8rem;color:var(--muted);text-align:right;margin-bottom:0.5rem">Last updated: ${live.timestamp} · <a href="#" onclick="Shared._loadAdminDashboard();return false" style="color:var(--accent)">Refresh now</a></div>
           <div class="grid grid-3">
-            <div class="chart-card" style="grid-column:span 2">${d ? `<div class="card-header"><div class="card-title">Attendance — Last 14 Days</div><span class="text-xs text-muted">Recognition rate: ${d.recognition_success_rate || 0}%</span></div>${barChart(d.series, (s) => String(s.date).slice(5))}` : App.emptyState("Loading chart...", "", I.calendar)}</div>
+            <div class="chart-card" style="grid-column:span 2"><div class="card-header"><div class="card-title">RFID Attendance — Last 14 Days</div><span class="text-xs text-muted">RFID scan volume</span></div>${barChart(d ? (d.rfid_series || d.series) : [])}</div>
+
             <div class="card"><div class="card-header"><div class="card-title">Population</div></div>${donut}${d ? `<div class="mt-2 text-xs text-muted">Attended today: <b>${live.unique_attendees}</b> · Total: <b>${live.total_students}</b></div>` : ""}</div>
           </div>
           ${d ? `<div class="card mt-3"><div class="card-header"><div class="card-title">Recent Attendance</div><a href="#/dashboard/attendance">View all →</a></div>
-            ${d.recent && d.recent.length ? `<div class="table-wrap"><table class="data"><thead><tr><th>Name</th><th>ID</th><th>Date</th><th>Time In</th><th>Status</th><th>Device</th></tr></thead><tbody>` +
-              d.recent.map((r) => `<tr><td class="cell-strong">${App.esc(r.user_name)}</td><td class="cell-sub">${App.esc(r.user_id)}</td><td>${App.esc(r.date)}</td><td>${App.esc(r.time_in || "—")}</td><td>${App.statusBadge(r.attendance_status)}</td><td class="cell-sub">${App.esc(r.device_id)}</td></tr>`).join("") +
+            ${d.recent && d.recent.length ? `<div class="table-wrap"><table class="data"><thead><tr><th>Name</th><th>ID</th><th>Date</th><th>Time In</th><th>Status</th><th>Method</th><th>Device</th></tr></thead><tbody>` +
+              d.recent.map((r) => `<tr><td class="cell-strong">${App.esc(r.user_name)}</td><td class="cell-sub">${App.esc(r.user_id)}</td><td>${App.esc(r.date)}</td><td>${App.esc(r.time_in || "—")}</td><td>${App.statusBadge(r.attendance_status)}</td><td>${methodBadge(r.scan_method)}</td><td class="cell-sub">${App.esc(r.device_id)}</td></tr>`).join("") +
               `</tbody></table></div>` : App.emptyState("No recent activity", "Attendance records will appear here.", I.calendar)}
           </div>` : ""}`;
       } catch (e) { if (!silent) wrap.innerHTML = App.alert("error", e.message); }
@@ -715,4 +732,5 @@
   // /dashboard/students and /dashboard/overview dispatched elsewhere / above.
 
   window.Shared = Shared;
+  App.refreshNotifBadge = Shared.refreshNotifBadge;
 })();

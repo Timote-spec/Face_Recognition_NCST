@@ -84,6 +84,13 @@ def _migrate_admins(conn):
     conn.commit()
 
 
+def _migrate_rfid(conn):
+    """Add rfid_uid column to registrants for RFID-based attendance."""
+    if not _has_column(conn, "registrants", "rfid_uid"):
+        conn.execute("ALTER TABLE registrants ADD COLUMN rfid_uid TEXT")
+        conn.commit()
+
+
 def _migrate_attendance_logs(conn):
     """Add time_in/time_out tracking columns to attendance_logs."""
     if not _has_column(conn, "attendance_logs", "time_in"):
@@ -94,6 +101,8 @@ def _migrate_attendance_logs(conn):
         conn.execute("ALTER TABLE attendance_logs ADD COLUMN attendance_status TEXT DEFAULT 'PRESENT'")
     if not _has_column(conn, "attendance_logs", "date"):
         conn.execute("ALTER TABLE attendance_logs ADD COLUMN date TEXT")
+    if not _has_column(conn, "attendance_logs", "scan_method"):
+        conn.execute("ALTER TABLE attendance_logs ADD COLUMN scan_method TEXT DEFAULT 'Face'")
     conn.commit()
     # Backfill date from logged_at for existing rows
     conn.execute(
@@ -230,6 +239,7 @@ def init_db():
     _migrate_students(conn)
     _migrate_admins(conn)
     _migrate_attendance_logs(conn)
+    _migrate_rfid(conn)
     _create_indexes(conn)
     _ensure_main_admin(conn)
     _ensure_qr_tokens(conn)
@@ -253,6 +263,7 @@ def _create_indexes(conn: sqlite3.Connection):
         "CREATE INDEX IF NOT EXISTS idx_profile_requests_user ON profile_update_requests(user_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_audit_logged ON audit_logs(logged_at)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_registrants_qr ON registrants(qr_token) WHERE qr_token IS NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_registrants_rfid ON registrants(rfid_uid) WHERE rfid_uid IS NOT NULL",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_registrants_email_unique ON registrants(email) WHERE email IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_password_reset_otps_email ON password_reset_otps(email)",
         "CREATE INDEX IF NOT EXISTS idx_password_reset_otps_user ON password_reset_otps(user_id)",

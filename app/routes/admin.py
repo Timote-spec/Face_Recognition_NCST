@@ -1,3 +1,5 @@
+import datetime
+
 import bcrypt
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
@@ -45,7 +47,7 @@ def list_users(
     total = conn.execute(f"SELECT COUNT(*) {base_sql}", params).fetchone()[0]
     offset = (page - 1) * page_size
     rows = conn.execute(
-        f"SELECT user_id, first_name, last_name, role, department_section, status, email, contact_number, emergency_contact, photo_path, created_at {base_sql} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        f"SELECT user_id, first_name, last_name, role, department_section, status, email, contact_number, emergency_contact, rfid_uid, qr_token, section, photo_path, created_at {base_sql} ORDER BY created_at DESC LIMIT ? OFFSET ?",
         params + [page_size, offset],
     ).fetchall()
     return {
@@ -63,6 +65,9 @@ def list_users(
                 email=r["email"],
                 contact_number=r["contact_number"],
                 emergency_contact=r["emergency_contact"],
+                rfid_uid=r["rfid_uid"],
+                qr_token=r["qr_token"],
+                section=r["section"],
                 photo_url=f"/api/v1/images/{r['user_id']}",
                 created_at=r["created_at"],
             )
@@ -75,7 +80,7 @@ def list_users(
 def get_user(user_id: str, _admin: str = Depends(get_current_admin)):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT user_id, first_name, last_name, role, department_section, status, email, contact_number, emergency_contact, photo_path, created_at FROM registrants WHERE user_id = ?",
+        "SELECT user_id, first_name, last_name, role, department_section, status, email, contact_number, emergency_contact, rfid_uid, photo_path, created_at FROM registrants WHERE user_id = ?",
         (user_id,),
     ).fetchone()
     if not row:
@@ -90,6 +95,7 @@ def get_user(user_id: str, _admin: str = Depends(get_current_admin)):
         email=row["email"],
         contact_number=row["contact_number"],
         emergency_contact=row["emergency_contact"],
+        rfid_uid=row["rfid_uid"],
         photo_url=f"/api/v1/images/{row['user_id']}",
         created_at=row["created_at"],
     )
@@ -170,7 +176,7 @@ def list_logs(
     total = conn.execute(f"SELECT COUNT(*) {base_sql}", params).fetchone()[0]
     offset = (page - 1) * page_size
     rows = conn.execute(
-        f"""SELECT a.log_id, a.user_id, r.first_name, r.last_name, r.role, r.department_section, r.photo_path, a.logged_at, a.device_id, a.time_in, a.time_out, a.attendance_status, a.date
+        f"""SELECT a.log_id, a.user_id, r.first_name, r.last_name, r.role, r.department_section, r.photo_path, a.logged_at, a.device_id, a.time_in, a.time_out, a.attendance_status, a.date, a.scan_method
                {base_sql}
             ORDER BY a.date DESC, a.logged_at DESC
             LIMIT ? OFFSET ?""",
@@ -195,6 +201,7 @@ def list_logs(
                 attendance_status=r["attendance_status"],
                 date=r["date"],
                 photo_url=f"/api/v1/images/{r['user_id']}",
+                scan_method=r["scan_method"],
             )
             for r in rows
         ],
@@ -216,14 +223,26 @@ def update_registrant(
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
+    rfid_val = body.rfid_uid.strip() if body.rfid_uid else None
+    if rfid_val:
+        existing = conn.execute(
+            "SELECT user_id FROM registrants WHERE rfid_uid = ? AND user_id != ?",
+            (rfid_val, user_id),
+        ).fetchone()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"RFID UID '{rfid_val}' is already assigned to another user.",
+            )
     conn.execute(
         """UPDATE registrants
-              SET first_name = ?, last_name = ?, role = ?, department_section = ?, email = ?, course = ?, year_level = ?, section = ?, contact_number = ?, address = ?, emergency_contact = ?
+              SET first_name = ?, last_name = ?, role = ?, department_section = ?, email = ?, course = ?, year_level = ?, section = ?, contact_number = ?, address = ?, emergency_contact = ?, rfid_uid = ?
             WHERE user_id = ?""",
         (
             body.first_name, body.last_name, body.role, body.department_section,
             body.email, body.course, body.year_level, body.section,
             body.contact_number, body.address, body.emergency_contact,
+            rfid_val,
             user_id,
         ),
     )
@@ -231,7 +250,7 @@ def update_registrant(
     admin_email = get_admin_email(_admin)
     log_system_action(admin_email, "UPDATE_REGISTRANT", f"Updated user {user_id}")
     updated = conn.execute(
-        "SELECT user_id, first_name, last_name, role, department_section, status, email, contact_number, emergency_contact, photo_path, created_at FROM registrants WHERE user_id = ?",
+        "SELECT user_id, first_name, last_name, role, department_section, status, email, contact_number, emergency_contact, rfid_uid, photo_path, created_at FROM registrants WHERE user_id = ?",
         (user_id,),
     ).fetchone()
     return RegistrantListRow(
@@ -244,6 +263,7 @@ def update_registrant(
         email=updated["email"],
         contact_number=updated["contact_number"],
         emergency_contact=updated["emergency_contact"],
+        rfid_uid=updated["rfid_uid"],
         photo_url=f"/api/v1/images/{updated['user_id']}",
         created_at=updated["created_at"],
     )
@@ -446,9 +466,14 @@ def dashboard_stats(_admin: str = Depends(get_current_admin)):
     present_today = conn.execute("SELECT COUNT(*) FROM attendance_logs WHERE date = ? AND attendance_status = 'PRESENT'", (today,)).fetchone()[0]
     success_rate = round((present_today / total_today) * 100, 1) if total_today else 0.0
 
-    # Recent activity (last 10)
+    # Scan method breakdown for today
+    rfid_today = conn.execute("SELECT COUNT(*) FROM attendance_logs WHERE date = ? AND scan_method = 'RFID'", (today,)).fetchone()[0]
+    face_today = conn.execute("SELECT COUNT(*) FROM attendance_logs WHERE date = ? AND scan_method = 'Face'", (today,)).fetchone()[0]
+    qr_today = conn.execute("SELECT COUNT(*) FROM attendance_logs WHERE date = ? AND scan_method = 'QR'", (today,)).fetchone()[0]
+
+    # Recent activity (last 10) with scan_method
     recent = conn.execute(
-        """SELECT a.log_id, a.user_id, r.first_name || ' ' || r.last_name AS user_name, a.date, a.time_in, a.attendance_status, a.device_id
+        """SELECT a.log_id, a.user_id, r.first_name || ' ' || r.last_name AS user_name, a.date, a.time_in, a.attendance_status, a.device_id, a.scan_method
               FROM attendance_logs a JOIN registrants r ON r.user_id = a.user_id
              ORDER BY a.date DESC, a.logged_at DESC LIMIT 10"""
     ).fetchall()
@@ -457,6 +482,29 @@ def dashboard_stats(_admin: str = Depends(get_current_admin)):
     series = conn.execute(
         """SELECT date, COUNT(*) AS cnt FROM attendance_logs
              WHERE date >= date(?, '-13 days') GROUP BY date ORDER BY date ASC""",
+        (today,),
+    ).fetchall()
+
+    # RFID statistics (requested dashboard widgets)
+    weekly_start = (now - datetime.timedelta(days=6)).strftime("%Y-%m-%d")
+    monthly_start = now.replace(day=1).strftime("%Y-%m-%d")
+
+    rfid_week = conn.execute(
+        """SELECT COUNT(*) AS cnt FROM attendance_logs
+             WHERE date >= ? AND scan_method = 'RFID'""",
+        (weekly_start,),
+    ).fetchone()["cnt"]
+
+    rfid_month = conn.execute(
+        """SELECT COUNT(*) AS cnt FROM attendance_logs
+             WHERE date >= ? AND scan_method = 'RFID'""",
+        (monthly_start,),
+    ).fetchone()["cnt"]
+
+    rfid_series = conn.execute(
+        """SELECT date, COUNT(*) AS cnt FROM attendance_logs
+             WHERE date >= date(?, '-13 days') AND scan_method = 'RFID'
+             GROUP BY date ORDER BY date ASC""",
         (today,),
     ).fetchall()
 
@@ -473,8 +521,14 @@ def dashboard_stats(_admin: str = Depends(get_current_admin)):
         "recognition_success_rate": success_rate,
         "pending_approvals": pending_approvals + pending_profile,
         "month_attendance": month_attendance,
+        "rfid_today": rfid_today,
+        "face_today": face_today,
+        "qr_today": qr_today,
         "recent": [dict(r) for r in recent],
         "series": [{"date": r["date"], "count": r["cnt"]} for r in series],
+        "rfid_weekly_scans": rfid_week or 0,
+        "rfid_monthly_scans": rfid_month or 0,
+        "rfid_series": [{"date": r["date"], "count": r["cnt"]} for r in rfid_series],
         "role_distribution": [{"role": r["role"], "count": r["cnt"]} for r in role_dist],
         "face_model_status": face_service.health(),
     }

@@ -473,6 +473,12 @@
         </svg>
         <span>Auto: OFF</span>
       </button>
+      <a href="/rfid-scanner" class="kiosk-btn" title="RFID Scanner Monitoring">
+        <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/>
+        </svg>
+        <span>RFID Monitor</span>
+      </a>
       <a href="/login" class="kiosk-btn" style="text-decoration:none;margin-left:auto;">
         <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
@@ -482,6 +488,7 @@
     </div>
   </div>
 
+  <script src="/static/assets/js/rfid-listener.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script>
     /* ====================================================================
@@ -526,7 +533,8 @@
     const qrCtx = qrCanvas.getContext('2d', { willReadFrequently: true });
 
     const COOLDOWN_MS = 30000;
-    const scanCooldowns = new Map();
+    window.__rfidCooldowns = window.__rfidCooldowns || new Map();
+    const scanCooldowns = window.__rfidCooldowns;
 
     function isOnCooldown(userId) {
       if (!scanCooldowns.has(userId)) return false;
@@ -1024,7 +1032,7 @@
       const card = document.createElement('div');
       card.className = 'result-card ' + (isOk ? 'success' : 'error');
       const ts = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
-      const methodLabel = method === 'qr' ? 'QR Code' : method === 'face' ? 'Face Recognition' : 'Unknown';
+      const methodLabel = method === 'qr' ? 'QR Code' : method === 'face' ? 'Face Recognition' : method === 'rfid' ? 'RFID Card' : 'Unknown';
 
       if (isOk && !suppressed) {
         const inTime = data.time_in || '--', outTime = data.time_out || '--', status = data.attendance_status || 'PRESENT';
@@ -1071,6 +1079,34 @@
     btnClear.addEventListener('click', () => {
       resultsList.innerHTML = ''; trackedFaces = []; nextTrackId = 0;
       emptyState.style.display = 'block';
+    });
+
+    // ── RFID event handlers ──
+    document.addEventListener('rfid:success', function (e) {
+      var data = e.detail;
+      var uid = data.user_id;
+      if (!isOnCooldown(uid)) {
+        setCooldown(uid);
+        addResult(data, true, 'rfid', {});
+        showConfirmation(data);
+      }
+    });
+
+    document.addEventListener('rfid:error', function (e) {
+      addResult({ detail: e.detail.detail }, false, 'rfid', {});
+    });
+
+    document.addEventListener('rfid:cooldown', function (e) {
+      var data = e.detail;
+      addResult(Object.assign({}, data, { _cooldown: true, _cooldown_secs: data.remaining }), true, 'rfid', {}, true);
+    });
+
+    // ── Start global RFID listener on load ──
+    window.addEventListener('load', function () {
+      if (window.RFIDListener) {
+        window.RFIDListener.start();
+        setStatus('Camera inactive · RFID ready', '');
+      }
     });
 
     // ── Fullscreen toggle ──

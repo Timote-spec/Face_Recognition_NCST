@@ -41,7 +41,7 @@ app.add_middleware(
 async def global_rate_limit(request: Request, call_next):
     # Protect unauthenticated, high-risk endpoints.
     path = request.url.path
-    if path.startswith("/api/v1/auth") or path == "/api/v1/verify" or path == "/api/v1/verify/qr":
+    if path.startswith("/api/v1/auth") or path.startswith("/api/v1/verify") or path.startswith("/api/v1/attendance/rfid") or path == "/api/v1/rfid":
         client = request.client.host if request.client else "unknown"
         key = f"global:{client}"
         if not limiter.is_allowed(key, limit=settings.rate_limit_per_minute):
@@ -172,6 +172,16 @@ async def read_forgot_password():
 @app.get("/scanner", response_class=FileResponse)
 async def read_scanner():
     return FileResponse("frontend/scanner.html")
+
+
+@app.get("/rfid-scanner", response_class=FileResponse)
+async def read_rfid_scanner():
+    return FileResponse("frontend/rfid-scanner.html")
+
+
+@app.get("/gate-scanner", response_class=FileResponse)
+async def read_gate_scanner():
+    return FileResponse("frontend/gate-scanner.html")
 
 
 @app.get("/dashboard/{path:path}", response_class=FileResponse)

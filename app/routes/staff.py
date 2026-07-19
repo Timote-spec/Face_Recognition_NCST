@@ -64,7 +64,7 @@ def get_staff_attendance(
     page_size: int = Query(50, ge=1, le=200),
 ):
     conn = get_db_connection()
-    sql = """SELECT a.log_id, a.user_id, r.first_name || ' ' || r.last_name AS user_name, r.role, r.department_section, a.logged_at, a.device_id, a.time_in, a.time_out, a.attendance_status, a.date
+    sql = """SELECT a.log_id, a.user_id, r.first_name || ' ' || r.last_name AS user_name, r.role, r.department_section, a.logged_at, a.device_id, a.time_in, a.time_out, a.attendance_status, a.date, a.scan_method
                FROM attendance_logs a
                JOIN registrants r ON r.user_id = a.user_id
               WHERE a.user_id = ?"""
@@ -95,7 +95,7 @@ def export_staff_attendance(
     date_to: str | None = Query(None),
 ):
     conn = get_db_connection()
-    sql = """SELECT a.log_id, a.user_id, r.first_name || ' ' || r.last_name AS user_name, r.role, r.department_section, a.logged_at, a.device_id, a.time_in, a.time_out, a.attendance_status, a.date
+    sql = """SELECT a.log_id, a.user_id, r.first_name || ' ' || r.last_name AS user_name, r.role, r.department_section, a.logged_at, a.device_id, a.time_in, a.time_out, a.attendance_status, a.date, a.scan_method
                FROM attendance_logs a
                JOIN registrants r ON r.user_id = a.user_id
               WHERE a.user_id = ?"""
@@ -110,11 +110,11 @@ def export_staff_attendance(
     rows = conn.execute(sql, params).fetchall()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Log ID", "Name", "Role", "Department", "Date", "Time In", "Time Out", "Status", "Logged At", "Device"])
+    writer.writerow(["Log ID", "Name", "Role", "Department", "Date", "Time In", "Time Out", "Status", "Logged At", "Device", "Method"])
     for r in rows:
         writer.writerow([
             r["log_id"], r["user_name"], r["role"], r["department_section"],
-            r["date"], r["time_in"], r["time_out"], r["attendance_status"], r["logged_at"], r["device_id"]
+            r["date"], r["time_in"], r["time_out"], r["attendance_status"], r["logged_at"], r["device_id"], r["scan_method"]
         ])
     return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=my_attendance.csv"})
 

@@ -306,6 +306,7 @@
       // Admin-only “My Profile” intentionally removed per audit requirement.
       { section: "Operations" },
       { href: "/dashboard/scanner", label: "Live Scanner", icon: "camera" },
+      { href: "/dashboard/rfid", label: "RFID Management", icon: "eye" },
       { href: "/dashboard/settings", label: "Settings", icon: "settings" },
     ],
     STAFF: [

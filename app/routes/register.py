@@ -29,6 +29,7 @@ async def register_registrant(
     contact_number: str = Form(""),
     address: str = Form(""),
     emergency_contact: str = Form(""),
+    rfid_uid: str = Form(""),
     image: UploadFile = File(...),
     _admin: str | None = Depends(get_current_admin if not settings.open_enrollment else (lambda: None)),
 ):
@@ -49,12 +50,13 @@ async def register_registrant(
     now_str = pst_str()
     try:
         conn.execute(
-            """INSERT INTO registrants (user_id, first_name, last_name, role, department_section, face_embedding, status, created_at, email, password_hash, course, year_level, section, contact_number, address, emergency_contact)
-                   VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO registrants (user_id, first_name, last_name, role, department_section, face_embedding, status, created_at, email, password_hash, course, year_level, section, contact_number, address, emergency_contact, rfid_uid)
+                   VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 user_id, first_name, last_name, role, department_section, embedding_blob, now_str,
                 email, password_hash, course or None, year_level or None,
                 section or None, contact_number or None, address or None, emergency_contact or None,
+                rfid_uid or None,
             ),
         )
         conn.commit()
@@ -96,6 +98,7 @@ async def register_registrant(
         contact_number=contact_number or None,
         address=address or None,
         emergency_contact=emergency_contact or None,
+        rfid_uid=rfid_uid or None,
         photo_url=f"/api/v1/images/{user_id}",
         temporary_password=DEFAULT_PASSWORD,
     )

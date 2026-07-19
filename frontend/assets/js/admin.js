@@ -82,20 +82,31 @@
         if (!rows.length) { wrap.innerHTML = App.emptyState("No users found", "Try adjusting your filters or add a new user.", I.users); pager.innerHTML = ""; return; }
         const isAdmin = App.role() === "ADMIN";
         const photo = (uid) => `<img src="${App.API}/images/${App.esc(uid)}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;background:var(--surface-2);vertical-align:middle;margin-right:6px;" onerror="this.style.display='none'">`;
+        const hasQr = (u) => u.qr_token ? App.badge("success", "✓", true) : App.badge("muted", "—");
+        const hasRfid = (u) => u.rfid_uid ? `<code style="font-size:.8rem;background:var(--surface-2);padding:2px 7px;border-radius:5px">${App.esc(u.rfid_uid)}</code>` : `<span class="text-muted">—</span>`;
         const body = rows.map((u) => `<tr>
           <td>${photo(u.user_id)}</td>
           <td class="cell-strong">${App.esc(u.first_name + " " + u.last_name)}</td>
-          <td class="cell-sub">${App.esc(u.user_id)}</td>
           <td>${App.badge("muted", u.role)}</td>
-          <td>${App.esc(u.department_section || "—")}</td>
+          <td>${App.esc(u.section || u.department_section || "—")}</td>
+          <td style="text-align:center">${hasQr(u)}</td>
+          <td style="text-align:center">${hasRfid(u)}</td>
           <td>${App.statusBadge(u.status)}</td>
-          <td class="text-right" style="text-align:right;white-space:nowrap">
-            ${isAdmin ? `<button class="btn btn-ghost btn-sm" title="Edit" onclick="Admin.openEditStudent('${u.user_id}')">${svg(I.edit)}</button>
+          <td class="text-right" style="white-space:nowrap">
+            ${isAdmin ? `<div style="display:inline-flex;gap:2px;flex-wrap:nowrap;align-items:center">
+            ${u.rfid_uid
+              ? `<button class="btn btn-ghost btn-sm" title="Replace RFID" onclick="Admin.openAssignRfid('${u.user_id}')">${svg(I.edit)}</button>
+                 <button class="btn btn-ghost btn-sm btn-danger" title="Remove RFID" onclick="Admin.openRemoveRfid('${u.user_id}')">${svg(I.trash)}</button>`
+              : `<button class="btn btn-ghost btn-sm" title="Assign RFID" onclick="Admin.openAssignRfid('${u.user_id}')">${svg(I.plus)}</button>`
+            }
+            <span class="text-muted" style="opacity:.3">|</span>
+            <button class="btn btn-ghost btn-sm" title="Edit" onclick="Admin.openEditStudent('${u.user_id}')">${svg(I.edit)}</button>
             <button class="btn btn-ghost btn-sm" title="Re-enroll face" onclick="Admin.openReenroll('${u.user_id}')">${svg(I.camera)}</button>
             <button class="btn btn-ghost btn-sm" title="Reset password" onclick="Admin.openResetPassword('${u.user_id}')">${svg(I.settings)}</button>
-            <button class="btn btn-ghost btn-sm ${u.status === "ACTIVE" ? "btn-danger" : "btn-success"}" title="Archive/Restore" onclick="Admin.toggleUser('${u.user_id}')">${u.status === "ACTIVE" ? svg(I.archive) : svg(I.refresh)}</button>` : ""}
+            <button class="btn btn-ghost btn-sm ${u.status === "ACTIVE" ? "btn-danger" : "btn-success"}" title="Archive/Restore" onclick="Admin.toggleUser('${u.user_id}')">${u.status === "ACTIVE" ? svg(I.archive) : svg(I.refresh)}</button>
+            </div>` : ""}
           </td></tr>`).join("");
-        wrap.innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th></th><th>Name</th><th>ID</th><th>Role</th><th>Department</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
+        wrap.innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th></th><th>Name</th><th>Role</th><th>Section</th><th style="text-align:center">QR</th><th style="text-align:center">RFID UID</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
         if (isStaff) {
           pager.innerHTML = `<div class="pagination"><span class="page-info">Showing ${rows.length} result${rows.length === 1 ? "" : "s"}</span></div>`;
         } else {
@@ -477,6 +488,136 @@
         Admin.loadAdmins();
       } catch (e) { App.toast(e.message, "error"); }
     },
+
+    /* ---------------- RFID Management ---------------- */
+    rfidPage() {
+      App.setPageTitle("RFID Management");
+      App.content().innerHTML = `
+        <div class="page-header"><div><h1>RFID Card Management</h1><p>Assign, edit, or remove RFID cards for students and staff.</p></div></div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="search">${svg(I.search)}<input class="form-control" id="rfid-search" placeholder="Search name or ID…"></div>
+            <select class="form-control" id="rfid-role" style="max-width:150px"><option value="">All roles</option><option value="STUDENT">Student</option><option value="STAFF">Staff</option><option value="FACULTY">Faculty</option></select>
+            <select class="form-control" id="rfid-filter" style="max-width:180px"><option value="">All cards</option><option value="assigned">With RFID</option><option value="unassigned">Without RFID</option></select>
+            <button class="btn btn-primary" onclick="Admin.loadRfidStudents(1)">${svg(I.search)} Filter</button>
+          </div>
+          <div id="rfid-table">${App.loadingBlock("Loading…")}</div>
+          <div id="rfid-pager"></div>
+        </div>`;
+      Admin.loadRfidStudents(1);
+    },
+
+    async loadRfidStudents(page) {
+      const search = document.getElementById("rfid-search")?.value || "";
+      const roleFilter = document.getElementById("rfid-role")?.value || "";
+      const rfidFilter = document.getElementById("rfid-filter")?.value || "";
+      const wrap = document.getElementById("rfid-table");
+      const pager = document.getElementById("rfid-pager");
+      wrap.innerHTML = App.loadingBlock("Loading…");
+      try {
+        const q = `?page=${page}&page_size=25` + (search ? `&search=${encodeURIComponent(search)}` : "") + (roleFilter ? `&role=${roleFilter}` : "");
+        const data = await App.api(`/admin/users${q}`);
+        let rows = data.items || [];
+        const total = data.total || rows.length;
+
+        if (rfidFilter === "assigned") rows = rows.filter((u) => u.rfid_uid);
+        else if (rfidFilter === "unassigned") rows = rows.filter((u) => !u.rfid_uid);
+
+        if (!rows.length) { wrap.innerHTML = App.emptyState("No users found", "Try adjusting your filters.", I.users); pager.innerHTML = ""; return; }
+
+        const body = rows.map((u) => `<tr>
+          <td class="cell-strong">${App.esc(u.first_name + " " + u.last_name)}</td>
+          <td class="cell-sub">${App.esc(u.user_id)}</td>
+          <td>${App.badge("muted", u.role)}</td>
+          <td>${u.rfid_uid ? `<code style="font-size:.85rem;background:var(--surface-2);padding:2px 8px;border-radius:6px">${App.esc(u.rfid_uid)}</code>` : `<span class="text-muted">—</span>`}</td>
+          <td>${u.rfid_uid ? App.badge("success", "Assigned", true) : App.badge("muted", "Unassigned")}</td>
+          <td class="text-right" style="white-space:nowrap">
+            <button class="btn btn-ghost btn-sm" title="${u.rfid_uid ? "Edit RFID" : "Assign RFID"}" onclick="Admin.openAssignRfid('${u.user_id}')">${svg(u.rfid_uid ? I.edit : I.plus)} ${u.rfid_uid ? "Edit" : "Assign"}</button>
+          </td></tr>`).join("");
+        wrap.innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th>Name</th><th>ID</th><th>Role</th><th>RFID UID</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
+        pager.replaceChildren(App.pagination(total, page, 25, (p) => Admin.loadRfidStudents(p)));
+      } catch (e) { wrap.innerHTML = App.alert("error", e.message); }
+    },
+
+    openAssignRfid(userId) {
+      App.api(`/admin/users/${userId}`).then((u) => {
+        const hasRfid = !!u.rfid_uid;
+        App.modal({
+          title: hasRfid ? "Edit RFID Card" : "Assign RFID Card",
+          body: `<div class="form-group"><label>Student Name</label><input class="form-control" value="${App.esc(u.first_name + " " + u.last_name)}" disabled></div>
+            <div class="form-group"><label>Student ID</label><input class="form-control" value="${App.esc(u.user_id)}" disabled></div>
+            <div class="form-group"><label>RFID UID</label>
+              <input class="form-control" id="rfid-uid-input" value="${App.esc(u.rfid_uid || "")}" placeholder="Scan or type RFID card UID" autocomplete="off" ${hasRfid ? "" : "autofocus"}>
+              <p class="form-hint">Scan the RFID card or type the UID manually.</p>
+            </div>
+            <div id="rfid-msg"></div>`,
+          footer: `<button class="btn btn-secondary" data-close>Cancel</button>
+            ${hasRfid ? `<button class="btn btn-danger" id="rfid-remove" style="margin-right:auto">${svg(I.trash)} Remove Card</button>` : ""}
+            <button class="btn btn-primary" id="rfid-save">${hasRfid ? "Update" : "Assign Card"}</button>`,
+          onOpen: (m) => {
+            const input = m.querySelector("#rfid-uid-input");
+            const msg = m.querySelector("#rfid-msg");
+            const saveBtn = m.querySelector("#rfid-save");
+
+            const doSave = async (clear) => {
+              const rfidVal = clear ? "" : input.value.trim();
+              if (!clear && !rfidVal) { msg.innerHTML = App.alert("error", "Please scan or enter an RFID UID."); return; }
+              saveBtn.disabled = true; saveBtn.innerHTML = App.spinner() + " Saving…";
+              try {
+                await App.api(`/admin/users/${userId}`, {
+                  method: "PUT",
+                  body: JSON.stringify({
+                    first_name: u.first_name, last_name: u.last_name, role: u.role,
+                    department_section: u.department_section, email: u.email,
+                    course: u.course, year_level: u.year_level, section: u.section,
+                    contact_number: u.contact_number, address: u.address,
+                    emergency_contact: u.emergency_contact, rfid_uid: rfidVal,
+                  }),
+                });
+                App.toast(clear ? "RFID card removed." : "RFID card assigned.", "success");
+                App.closeModal();
+                Admin.loadRfidStudents(1);
+              } catch (e) { msg.innerHTML = App.alert("error", e.message); }
+              finally { saveBtn.disabled = false; saveBtn.innerHTML = hasRfid ? "Update" : "Assign Card"; }
+            };
+
+            saveBtn.addEventListener("click", () => doSave(false));
+
+            const removeBtn = m.querySelector("#rfid-remove");
+            if (removeBtn) {
+              removeBtn.addEventListener("click", () => {
+                App.confirm("Remove RFID Card", "Are you sure you want to remove this RFID card from " + App.esc(u.first_name + " " + u.last_name) + "?", () => doSave(true), true);
+              });
+            }
+
+            input.addEventListener("keydown", (e) => { if (e.key === "Enter") doSave(false); });
+          },
+        });
+      }).catch((e) => App.toast(e.message, "error"));
+    },
+
+    openRemoveRfid(userId) {
+      App.api(`/admin/users/${userId}`).then((u) => {
+        App.confirm("Remove RFID Card",
+          "Are you sure you want to remove the RFID card from <strong>" + App.esc(u.first_name + " " + u.last_name) + "</strong>?",
+          async () => {
+            try {
+              await App.api(`/admin/users/${userId}`, {
+                method: "PUT",
+                body: JSON.stringify({
+                  first_name: u.first_name, last_name: u.last_name, role: u.role,
+                  department_section: u.department_section, email: u.email,
+                  course: u.course, year_level: u.year_level, section: u.section,
+                  contact_number: u.contact_number, address: u.address,
+                  emergency_contact: u.emergency_contact, rfid_uid: "",
+                }),
+              });
+              App.toast("RFID card removed.", "success");
+              Admin.loadStudents(Admin._usrPage || 1);
+            } catch (e) { App.toast(e.message, "error"); }
+          }, true);
+      }).catch((e) => App.toast(e.message, "error"));
+    },
   };
 
   /* ---------------- Shared form helpers ---------------- */
@@ -498,6 +639,7 @@
         ${u.user_id ? "" : `<div class="form-row cols-2"><div class="form-group"><label>Email *</label><input class="form-control" id="uf-email" type="email" placeholder="user@ncst.edu"><div class="field-error" id="err-email"></div></div><div class="form-group"><label>Default Password</label><input class="form-control" id="uf-pw" value="Default123!" disabled style="background:#f1f5f9;color:#94a3b8"></div></div>`}
         ${u.user_id ? `<div class="form-group"><label>Email</label><input class="form-control" value="${App.esc(u.email || "")}" disabled style="background:#f1f5f9"></div>` : ""}
         <div class="form-row cols-2"><div class="form-group"><label>Contact Number</label><input class="form-control" id="uf-contact" value="${App.esc(u.contact_number || "")}"></div><div class="form-group"><label>Emergency Contact</label><input class="form-control" id="uf-emerg" value="${App.esc(u.emergency_contact || "")}"></div></div>
+        ${u.user_id ? `<div class="form-group"><label>RFID UID</label><input class="form-control" id="uf-rfid" value="${App.esc(u.rfid_uid || "")}" placeholder="Scan or type RFID card UID"></div>` : ""}
         ${u.user_id ? "" : `<div class="form-group"><label>Face Image *</label><div id="uf-cam-wrap"></div></div>`}
         <div id="uf-msg" class="mt-1"></div>`,
       footer: `<button class="btn btn-secondary" data-close>Cancel</button><button class="btn btn-primary" id="uf-save">${u.user_id ? "Save Changes" : "Register User"}</button>`,
@@ -524,6 +666,7 @@
             department_section: m.querySelector("#uf-dep").value.trim(),
             contact_number: m.querySelector("#uf-contact").value.trim(),
             emergency_contact: m.querySelector("#uf-emerg").value.trim(),
+            rfid_uid: u.user_id ? (m.querySelector("#uf-rfid")?.value.trim() || "") : undefined,
           };
 
           if (!u.user_id) {
@@ -651,6 +794,7 @@
 
   /* ---------------- Routes (admin) ---------------- */
   App.router.add("/dashboard/students", (p) => Admin.studentsPage(p));
+  App.router.add("/dashboard/rfid", () => Admin.rfidPage());
   App.router.add("/dashboard/approvals", () => Admin.approvalsPage());
   App.router.add("/dashboard/audit", () => Admin.auditPage());
   App.router.add("/dashboard/settings", () => Admin.settingsPage());
@@ -658,6 +802,7 @@
     if (App.role() !== "ADMIN") { location.hash = "#/dashboard/overview"; return; }
     Admin.adminManagementPage();
   });
+  App.router.add("/dashboard/rfid", () => Admin.rfidPage());
 
   window.Admin = Admin;
 })();

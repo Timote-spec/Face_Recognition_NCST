@@ -20,6 +20,7 @@ class RegisterRegistrantRequest(BaseModel):
     contact_number: Optional[str] = None
     address: Optional[str] = None
     emergency_contact: Optional[str] = None
+    rfid_uid: Optional[str] = None
 
     @field_validator("email")
     @classmethod
@@ -51,6 +52,7 @@ class RegistrantResponse(BaseModel):
     address: Optional[str] = None
     emergency_contact: Optional[str] = None
     photo_url: Optional[str] = None
+    rfid_uid: Optional[str] = None
     created_at: Optional[datetime] = None
     temporary_password: Optional[str] = None
 
@@ -68,6 +70,9 @@ class RegistrantListRow(BaseModel):
     email: Optional[str] = None
     contact_number: Optional[str] = None
     emergency_contact: Optional[str] = None
+    rfid_uid: Optional[str] = None
+    qr_token: Optional[str] = None
+    section: Optional[str] = None
     photo_url: Optional[str] = None
     created_at: datetime
 
@@ -77,6 +82,10 @@ class RegistrantListRow(BaseModel):
 
 class MarkAttendanceRequest(BaseModel):
     device_id: str
+
+
+class RfidAttendanceRequest(BaseModel):
+    rfid_uid: str
 
 
 class AttendanceLogResponse(BaseModel):
@@ -94,6 +103,7 @@ class AttendanceLogResponse(BaseModel):
     year_level: Optional[str] = None
     department_section: Optional[str] = None
     scan_action: Optional[str] = None  # "in" | "out"; used by frontend scanner
+    scan_method: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -231,6 +241,7 @@ class LogRow(BaseModel):
     attendance_status: Optional[str] = None
     date: Optional[str] = None
     photo_url: Optional[str] = None
+    scan_method: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -248,6 +259,7 @@ class UpdateRegistrantRequest(BaseModel):
     contact_number: Optional[str] = None
     address: Optional[str] = None
     emergency_contact: Optional[str] = None
+    rfid_uid: Optional[str] = None
 
 
 class AuditLogRow(BaseModel):
@@ -284,6 +296,7 @@ class StudentProfileResponse(BaseModel):
     contact_number: Optional[str] = None
     address: Optional[str] = None
     emergency_contact: Optional[str] = None
+    rfid_uid: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:

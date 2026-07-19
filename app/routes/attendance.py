@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 
 from app.config import settings
 from app.database import get_db_connection, pst_now, pst_str
-from app.schemas import AttendanceLogResponse
+from app.schemas import AttendanceLogResponse, RfidAttendanceRequest
 from app.services.face_service import face_service
 
 logger = logging.getLogger("attendance")
@@ -47,8 +47,8 @@ def _parse_time(t: str) -> datetime.datetime:
     return datetime.time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
 
 
-def _process_attendance(conn, user_id: str, device_id: str):
-    """Shared logic for both face and QR attendance."""
+def _process_attendance(conn, user_id: str, device_id: str, scan_method: str = "Face"):
+    """Shared logic for face/QR/RFID attendance."""
     now = pst_now()
     today_date = now.strftime("%Y-%m-%d")
     now_time = now.strftime("%H:%M:%S")
@@ -66,9 +66,9 @@ def _process_attendance(conn, user_id: str, device_id: str):
         cutoff = settings.late_cutoff_time
         status = "LATE" if now_time > cutoff else "PRESENT"
         cur = conn.execute(
-            """INSERT INTO attendance_logs (user_id, device_id, logged_at, time_in, time_out, attendance_status, date)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, device_id, now_str, now_time, None, status, today_date),
+            """INSERT INTO attendance_logs (user_id, device_id, logged_at, time_in, time_out, attendance_status, date, scan_method)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, device_id, now_str, now_time, None, status, today_date, scan_method),
         )
         conn.commit()
         record = _fetch_attendance_record(conn, cur.lastrowid)
@@ -112,7 +112,7 @@ def _fetch_attendance_record(conn, log_id: int):
     record = conn.execute(
         """SELECT a.user_id,
                   r.first_name || ' ' || r.last_name AS user_name,
-                  a.logged_at, a.device_id, a.time_in, a.time_out, a.attendance_status, a.date,
+                  a.logged_at, a.device_id, a.time_in, a.time_out, a.attendance_status, a.date, a.scan_method,
                   r.section, r.course, r.year_level, r.department_section, r.photo_path
              FROM attendance_logs a
              JOIN registrants r ON r.user_id = a.user_id
@@ -151,6 +151,7 @@ def _build_attendance_response(record, action="in") -> AttendanceLogResponse:
         year_level=_get("year_level"),
         department_section=_get("department_section"),
         scan_action=action,
+        scan_method=_get("scan_method"),
     )
 
 
@@ -208,7 +209,7 @@ async def verify_attendance(
         )
 
     logger.info("[FACE] Attendance recorded for user=%s", best_match_id)
-    return _process_attendance(conn, best_match_id, device_id)
+    return _process_attendance(conn, best_match_id, device_id, "Face")
 
 
 @router.post("/verify/qr", response_model=AttendanceLogResponse)
@@ -252,4 +253,82 @@ def verify_qr_attendance(
         )
 
     logger.info("[QR] Attendance recorded for user=%s", user_id)
-    return _process_attendance(conn, user_id, device_id)
+    return _process_attendance(conn, user_id, device_id, "QR")
+
+
+@router.post("/verify/rfid", response_model=AttendanceLogResponse)
+def verify_rfid_attendance(
+    rfid_uid: str = Form(...),
+    device_id: str = Form("rfid-scanner-01"),
+):
+    rfid_value = (rfid_uid or "").strip()
+    logger.info("[RFID] verify_rfid_attendance called — uid=%s, device=%s", rfid_value, device_id)
+
+    if not rfid_value:
+        raise HTTPException(status_code=400, detail="RFID UID is required")
+
+    conn = get_db_connection()
+    row = conn.execute(
+        """SELECT user_id, first_name, last_name, role, status, section, course, year_level, department_section, photo_path
+             FROM registrants
+            WHERE rfid_uid = ? AND status = 'ACTIVE'""",
+        (rfid_value,),
+    ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=401, detail="RFID card not recognized or user is inactive")
+
+    user_id = row["user_id"]
+    logger.info("[RFID] Matched user=%s %s %s", user_id, row["first_name"], row["last_name"])
+
+    if _check_cooldown(conn, user_id):
+        logger.info("[RFID] Cooldown active for user=%s", user_id)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Already recorded recently. Please wait {COOLDOWN_SECONDS}s between scans.",
+        )
+
+    logger.info("[RFID] Attendance recorded for user=%s", user_id)
+    return _process_attendance(conn, user_id, device_id, "RFID")
+
+
+@router.post("/attendance/rfid", response_model=AttendanceLogResponse)
+def rfid_attendance_json(body: RfidAttendanceRequest, device_id: str = "rfid-scanner-01"):
+    rfid_value = (body.rfid_uid or "").strip()
+    logger.info("[RFID-JSON] attendance/rfid called — uid=%s, device=%s", rfid_value, device_id)
+
+    if not rfid_value:
+        raise HTTPException(status_code=400, detail="RFID UID is required")
+
+    conn = get_db_connection()
+    row = conn.execute(
+        """SELECT user_id, first_name, last_name, role, status, section, course, year_level, department_section, photo_path
+             FROM registrants
+            WHERE rfid_uid = ? AND status = 'ACTIVE'""",
+        (rfid_value,),
+    ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=401, detail="RFID card not recognized or user is inactive")
+
+    user_id = row["user_id"]
+    logger.info("[RFID-JSON] Matched user=%s %s %s", user_id, row["first_name"], row["last_name"])
+
+    if _check_cooldown(conn, user_id):
+        logger.info("[RFID-JSON] Cooldown active for user=%s", user_id)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Already recorded recently. Please wait {COOLDOWN_SECONDS}s between scans.",
+        )
+
+    logger.info("[RFID-JSON] Attendance recorded for user=%s", user_id)
+    return _process_attendance(conn, user_id, device_id, "RFID")
+
+
+# Alias: some clients (including the existing /rfid-scanner.html) post to
+# POST /api/v1/attendance/rfid (without the extra `attendance/` segment).
+# Keep backward compatibility without removing existing endpoints.
+@router.post("/rfid", response_model=AttendanceLogResponse)
+def rfid_attendance_json_alias(body: RfidAttendanceRequest, device_id: str = "rfid-scanner-01"):
+    return rfid_attendance_json(body=body, device_id=device_id)
+
