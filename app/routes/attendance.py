@@ -48,64 +48,22 @@ def _parse_time(t: str) -> datetime.datetime:
 
 
 def _process_attendance(conn, user_id: str, device_id: str, scan_method: str = "Face"):
-    """Shared logic for face/QR/RFID attendance."""
+    """Record attendance — always inserts a new row (no daily check-in/out logic)."""
     now = pst_now()
     today_date = now.strftime("%Y-%m-%d")
     now_time = now.strftime("%H:%M:%S")
     now_str = pst_str(now)
 
-    existing = conn.execute(
-        """SELECT log_id, time_in, time_out
-             FROM attendance_logs
-            WHERE user_id = ? AND date = ? ORDER BY log_id DESC LIMIT 1""",
-        (user_id, today_date),
-    ).fetchone()
-
-    if not existing:
-        # ── Time IN (first scan of the day) ──
-        cutoff = settings.late_cutoff_time
-        status = "LATE" if now_time > cutoff else "PRESENT"
-        cur = conn.execute(
-            """INSERT INTO attendance_logs (user_id, device_id, logged_at, time_in, time_out, attendance_status, date, scan_method)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, device_id, now_str, now_time, None, status, today_date, scan_method),
-        )
-        conn.commit()
-        record = _fetch_attendance_record(conn, cur.lastrowid)
-        return _build_attendance_response(record, action="in")
-
-    # Record exists for today
-    if existing["time_in"] and existing["time_out"] is None:
-        # ── Time OUT (second scan) ──
-        try:
-            time_in_dt = datetime.datetime.strptime(str(existing["time_in"]).strip(), "%H:%M:%S")
-            time_out_dt = datetime.datetime.strptime(now_time, "%H:%M:%S")
-        except ValueError:
-            raise HTTPException(status_code=500, detail="Invalid time format in database")
-
-        elapsed_minutes = (time_out_dt - time_in_dt).total_seconds() / 60.0
-        if elapsed_minutes < MIN_INTERVAL_MINUTES:
-            remaining = int(MIN_INTERVAL_MINUTES - elapsed_minutes)
-            raise HTTPException(
-                status_code=429,
-                detail=f"Time-out not yet allowed. Please wait {remaining} more minute(s) (minimum {MIN_INTERVAL_MINUTES} min between scans).",
-            )
-
-        conn.execute(
-            "UPDATE attendance_logs SET time_out = ? WHERE log_id = ?",
-            (now_time, existing["log_id"]),
-        )
-        conn.commit()
-        record = _fetch_attendance_record(conn, existing["log_id"])
-        return _build_attendance_response(record, action="out")
-
-    if existing["time_in"] and existing["time_out"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Attendance already completed for today (both time-in and time-out recorded).",
-        )
-
-    raise HTTPException(status_code=500, detail="Unexpected attendance state")
+    cutoff = settings.late_cutoff_time
+    status = "LATE" if now_time > cutoff else "PRESENT"
+    cur = conn.execute(
+        """INSERT INTO attendance_logs (user_id, device_id, logged_at, time_in, time_out, attendance_status, date, scan_method)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, device_id, now_str, now_time, None, status, today_date, scan_method),
+    )
+    conn.commit()
+    record = _fetch_attendance_record(conn, cur.lastrowid)
+    return _build_attendance_response(record, action="in")
 
 
 def _fetch_attendance_record(conn, log_id: int):

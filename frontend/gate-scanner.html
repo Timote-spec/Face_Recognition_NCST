@@ -743,12 +743,8 @@
 
     document.addEventListener('rfid:success', function (e) {
       var data = e.detail;
-      var uid = data.user_id;
-      if (!isOnCooldown(uid)) {
-        setCooldown(uid);
-        addResult(data, true, MODES.RFID);
-        showConfirmation(data, MODES.RFID);
-      }
+      addResult(data, true, MODES.RFID);
+      showConfirmation(data, MODES.RFID);
       if (currentMode === MODES.RFID) {
         rfidInput.value = '';
       }

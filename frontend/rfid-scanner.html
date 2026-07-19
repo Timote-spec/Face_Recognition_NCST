@@ -556,60 +556,90 @@
     });
 
     document.addEventListener('rfid:success', function (e) {
-      var data = e.detail;
-      if (!isOnCooldown(data.user_id)) {
-        setCooldown(data.user_id);
+      try {
+        var data = e.detail;
+        console.log('[RFID-UI] rfid:success received', { data: data });
         showSuccess(data);
         addResultCard(data, true);
+      } catch (err) {
+        console.error('[RFID-UI] success handler crashed', err);
+        try { showError('UI error while rendering success.'); } catch {}
       }
     });
 
     document.addEventListener('rfid:error', function (e) {
-      showError(e.detail.detail);
-      addResultCard({ detail: e.detail.detail }, false);
+      try {
+        console.error('[RFID-UI] rfid:error received', e && e.detail);
+        var msg = e && e.detail && e.detail.detail ? e.detail.detail : 'Scan failed';
+        showError(msg);
+        addResultCard({ detail: msg }, false);
+      } catch (err) {
+        console.error('[RFID-UI] error handler crashed', err);
+      }
     });
 
     document.addEventListener('rfid:cooldown', function (e) {
-      var data = e.detail;
-      var rem = data.remaining || 30;
-      showError('Already recorded recently. Available in ~' + rem + 's.');
-      addResultCard(Object.assign({}, data, { _cooldown: true, _cooldown_secs: rem }), true, true);
+      try {
+        var data = e.detail || {};
+        var rem = data.remaining || 30;
+        console.warn('[RFID-UI] rfid:cooldown received', { user_name: data.user_name, remaining: rem });
+        showError('Already recorded recently. Available in ~' + rem + 's.');
+        addResultCard(Object.assign({}, data, { _cooldown: true, _cooldown_secs: rem }), true, true);
+      } catch (err) {
+        console.error('[RFID-UI] cooldown handler crashed', err);
+      }
     });
+
+    function requireEl(el, name) {
+      if (!el) {
+        console.error('[RFID-UI] missing DOM element:', name);
+        return false;
+      }
+      return true;
+    }
 
     // ── Show success ──
     function showSuccess(data) {
+      if (!requireEl(resultSuccess, 'resultSuccess') || !requireEl(resultError, 'resultError')) return;
       playBeep(true);
       resultError.classList.remove('visible');
       resultSuccess.classList.add('visible');
 
-      if (data.photo_url) {
-        sPhoto.src = data.photo_url;
-        sPhoto.style.display = '';
-        sPhotoPlace.style.display = 'none';
-      } else {
-        sPhoto.style.display = 'none';
-        sPhotoPlace.style.display = '';
-        sPhotoPlace.textContent = (data.user_name || '?')[0].toUpperCase();
+      if (requireEl(sPhoto, 'sPhoto') && requireEl(sPhotoPlace, 'sPhotoPlace')) {
+        if (data.photo_url) {
+          sPhoto.src = data.photo_url;
+          sPhoto.style.display = '';
+          sPhotoPlace.style.display = 'none';
+        } else {
+          sPhoto.style.display = 'none';
+          sPhotoPlace.style.display = '';
+          sPhotoPlace.textContent = (data.user_name || '?')[0].toUpperCase();
+        }
       }
 
-      sName.textContent = data.user_name || 'Student';
-      sId.textContent = 'ID: ' + (data.user_id || '');
+      if (requireEl(sName, 'sName') && requireEl(sId, 'sId')) {
+        sName.textContent = data.user_name || 'Student';
+        sId.textContent = 'ID: ' + (data.user_id || '');
+      }
 
       var info = [];
       if (data.section) info.push('Section: ' + data.section);
       if (data.course) info.push(data.course);
       if (data.year_level) info.push('Year ' + data.year_level);
       if (data.department_section) info.push(data.department_section);
-      sInfo.textContent = info.join(' · ');
+      if (requireEl(sInfo, 'sInfo')) sInfo.textContent = info.join(' · ');
 
-      sTime.textContent = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
+      if (requireEl(sTime, 'sTime')) sTime.textContent = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
 
       var action = data.scan_action || 'in';
       var isLate = data.attendance_status === 'LATE';
-      if (action === 'out') { sBadge.textContent = '✓ Time Out Logged'; sBadge.style.color = '#22c55e'; }
-      else if (isLate) { sBadge.textContent = '⏰ Late Check-in'; sBadge.style.color = '#f59e0b'; }
-      else { sBadge.textContent = '✓ Time In Logged'; sBadge.style.color = '#22c55e'; }
+      if (requireEl(sBadge, 'sBadge')) {
+        if (action === 'out') { sBadge.textContent = '✓ Time Out Logged'; sBadge.style.color = '#22c55e'; }
+        else if (isLate) { sBadge.textContent = '⏰ Late Check-in'; sBadge.style.color = '#f59e0b'; }
+        else { sBadge.textContent = '✓ Time In Logged'; sBadge.style.color = '#22c55e'; }
+      }
 
+      if (!requireEl(sCountdown, 'sCountdown')) return;
       var seconds = 4;
       sCountdown.textContent = 'Closing in ' + seconds + 's…';
       if (confirmTimer) clearInterval(confirmTimer);
@@ -622,13 +652,15 @@
 
     // ── Show error ──
     function showError(message) {
+      if (!requireEl(resultSuccess, 'resultSuccess') || !requireEl(resultError, 'resultError')) return;
       playBeep(false);
       resultSuccess.classList.remove('visible');
       resultError.classList.add('visible');
 
-      eTitle.textContent = 'Scan Failed';
-      eMessage.textContent = message;
+      if (requireEl(eTitle, 'eTitle')) eTitle.textContent = 'Scan Failed';
+      if (requireEl(eMessage, 'eMessage')) eMessage.textContent = message;
 
+      if (!requireEl(eCountdown, 'eCountdown')) return;
       var seconds = 3;
       eCountdown.textContent = 'Closing in ' + seconds + 's…';
       if (confirmTimer) clearInterval(confirmTimer);

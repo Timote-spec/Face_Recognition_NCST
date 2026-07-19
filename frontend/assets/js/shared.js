@@ -28,6 +28,7 @@
     return `<div class="bar-chart">${bars}</div>`;
   }
 
+  // eslint-disable-next-line no-unused-vars
   const Shared = {
     /* ---------------- Attendance ---------------- */
     attendancePage(params) {
@@ -730,6 +731,209 @@
   App.router.add("/dashboard/notifications", () => Shared.notificationsPage());
   App.router.add("/dashboard/scanner", () => Shared.scannerPage());
   // /dashboard/students and /dashboard/overview dispatched elsewhere / above.
+
+  // --- Global Attendance Success Modal (Face / QR / RFID unified) ---
+  // Used by all scanner pages (including RFID global listener) to show immediate feedback.
+  // This modal is a lightweight overlay implemented using a plain DOM container,
+  // so it works even when the scanner page does not use App.modal().
+  (function attachUnifiedAttendanceModal() {
+    const WIN = window;
+    WIN.__attendanceSuccessModal = WIN.__attendanceSuccessModal || {
+      _el: null,
+      _timer: null,
+      _cooldownKey: null,
+      cooldownMs: 10000,
+      lastShownAt: 0,
+    };
+
+    function ensureEl() {
+      const state = WIN.__attendanceSuccessModal;
+      if (state._el && document.body.contains(state._el)) return state._el;
+
+      const el = document.createElement('div');
+      el.id = 'attendance-success-modal';
+      el.style.position = 'fixed';
+      el.style.inset = '0';
+      el.style.zIndex = '99999';
+      el.style.display = 'none';
+      el.style.alignItems = 'center';
+      el.style.justifyContent = 'center';
+      el.style.padding = '1.5rem';
+      el.style.background = 'rgba(10,14,26,0.86)';
+      el.style.backdropFilter = 'blur(14px)';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(10px) scale(0.98)';
+      el.style.transition = 'opacity .25s ease, transform .25s ease';
+      el.innerHTML = `
+        <div style="width: min(520px, 94vw); border-radius: 18px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 1.25rem 1.25rem 1rem; box-shadow: 0 12px 70px rgba(0,0,0,0.35);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap: 1rem;">
+            <div style="display:flex; align-items:center; gap: 0.9rem;">
+              <div id="att-success-icon" style="width:64px; height:64px; border-radius:50%; display:flex; align-items:center; justify-content:center; background: rgba(34,197,94,0.15);">
+                <svg id="att-success-svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:#22c55e">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+              </div>
+              <div>
+                <div id="att-success-title" style="font-size:1.15rem; font-weight:800; letter-spacing:-0.02em">Attendance Recorded</div>
+                <div id="att-success-sub" style="font-size:0.85rem; color: rgba(255,255,255,0.55); margin-top:0.15rem">—</div>
+              </div>
+            </div>
+            <button id="att-success-close" aria-label="Close" style="border:none; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); border-radius: 10px; padding: 0.35rem 0.55rem; cursor:pointer; font-size: 1rem; line-height: 1;">✕</button>
+          </div>
+
+          <div style="display:flex; gap: 1rem; align-items:center; margin-top: 1rem;">
+            <div style="width:76px; height:76px; border-radius:50%; overflow:hidden; background: rgba(255,255,255,0.05); border: 4px solid rgba(34,197,94,0.55); display:flex; align-items:center; justify-content:center;">
+              <img id="att-success-photo" src="/static/images/default-avatar.png" alt="" style="width:100%; height:100%; object-fit:cover; display:block;" onerror="this.src='/static/images/default-avatar.png'"/>
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div id="att-success-name" style="font-size:1.35rem; font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">User</div>
+              <div id="att-success-meta" style="margin-top:0.25rem; font-size:0.9rem; color: rgba(255,255,255,0.55)">ID: —</div>
+              <div id="att-success-details" style="margin-top:0.3rem; font-size:0.82rem; color: rgba(255,255,255,0.45); line-height: 1.35; max-width: 360px;">—</div>
+            </div>
+          </div>
+
+          <div style="margin-top: 1rem; display:grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+            <div style="padding: 0.6rem 0.7rem; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);">
+              <div style="font-size:0.65rem; color: rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.04em">Attendance</div>
+              <div id="att-success-attendance" style="font-size:0.95rem; font-weight:800; margin-top:0.15rem">Time In</div>
+            </div>
+            <div style="padding: 0.6rem 0.7rem; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);">
+              <div style="font-size:0.65rem; color: rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:0.04em">Date & Time</div>
+              <div id="att-success-datetime" style="font-size:0.95rem; font-weight:800; margin-top:0.15rem">—</div>
+            </div>
+          </div>
+
+          <div id="att-success-countdown" style="margin-top:0.75rem; text-align:right; font-size:0.75rem; color: rgba(255,255,255,0.35)">Closing…</div>
+        </div>
+      `;
+      el.addEventListener('click', (e) => {
+        if (e.target === el) hide();
+      });
+      el.querySelector('#att-success-close').addEventListener('click', () => hide());
+      document.body.appendChild(el);
+      state._el = el;
+      return el;
+    }
+
+    function hide() {
+      const state = WIN.__attendanceSuccessModal;
+      if (state._timer) { clearInterval(state._timer); state._timer = null; }
+      if (!state._el) return;
+      state._el.style.display = 'none';
+      state._el.style.opacity = '0';
+      state._el.style.transform = 'translateY(10px) scale(0.98)';
+    }
+
+    function show(data, kind /* success | error */, ttlSeconds = 4) {
+      const state = WIN.__attendanceSuccessModal;
+      const el = ensureEl();
+
+      const now = Date.now();
+      const userId = data && (data.user_id || data.userId || data.uid || 'unknown');
+      const scanAction = data && (data.scan_action || data.action || 'in');
+      const stableKey = String(userId) + ':' + String(scanAction) + ':' + kind;
+      // prevent duplicates during cooldown
+      if (state._cooldownKey === stableKey && now - state.lastShownAt < state.cooldownMs) return;
+      state._cooldownKey = stableKey;
+      state.lastShownAt = now;
+
+      const photo = data && (data.photo_url || data.photoUrl || null);
+      const name = data && (data.user_name || data.full_name || (data.first_name && data.last_name ? (data.first_name + ' ' + data.last_name).trim() : null) || 'User');
+      const idNum = data && (data.user_id || '');
+      const role = data && (data.role || data.user_role || '');
+      const section = data && (data.section || data.department_section || data.department || data.department_section || '');
+      const status = data && (data.attendance_status || data.status || 'PRESENT');
+      const action = data && (data.scan_action || 'in');
+      const course = data && (data.course || '');
+      const yearLevel = data && (data.year_level || '');
+
+      const badgeText = action === 'out' ? 'Time Out' : (status === 'LATE' ? 'Late Check-in' : 'Time In');
+      const dateStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
+
+      const detailsParts = [];
+      if (role) detailsParts.push('Role: ' + role);
+      if (section) detailsParts.push(section.indexOf('Role:') === 0 ? section : ('Section/Dept: ' + section));
+      if (course) detailsParts.push('Course: ' + course);
+      if (yearLevel) detailsParts.push('Year: ' + yearLevel);
+      const details = detailsParts.length ? detailsParts.join(' · ') : '—';
+
+      el.querySelector('#att-success-photo').src = photo || '/static/images/default-avatar.png';
+      el.querySelector('#att-success-name').textContent = name;
+      el.querySelector('#att-success-meta').textContent = 'ID: ' + (idNum || '—');
+      el.querySelector('#att-success-details').textContent = details;
+      el.querySelector('#att-success-attendance').textContent = badgeText;
+      el.querySelector('#att-success-datetime').textContent = dateStr;
+
+      const titleEl = el.querySelector('#att-success-title');
+      const subEl = el.querySelector('#att-success-sub');
+      const iconWrap = el.querySelector('#att-success-icon');
+      const svgEl = el.querySelector('#att-success-svg');
+      const headerPhotoBorder = el.querySelector('div[style*="border: 4px solid"]');
+
+      if (kind === 'success') {
+        titleEl.textContent = 'Attendance Successful';
+        subEl.textContent = (action === 'out' ? 'Time Out logged successfully' : (status === 'LATE' ? 'Late check-in recorded' : 'Time In recorded'));
+        iconWrap.style.background = 'rgba(34,197,94,0.15)';
+        svgEl.style.color = '#22c55e';
+        if (headerPhotoBorder) headerPhotoBorder.style.border = '4px solid rgba(34,197,94,0.55)';
+      } else {
+        titleEl.textContent = 'Unregistered RFID';
+        subEl.textContent = (data && data.detail ? data.detail : 'This RFID card is not registered.');
+        iconWrap.style.background = 'rgba(239,68,68,0.15)';
+        svgEl.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>';
+        svgEl.style.color = '#ef4444';
+        if (headerPhotoBorder) headerPhotoBorder.style.border = '4px solid rgba(239,68,68,0.55)';
+      }
+
+      el.style.display = 'flex';
+      // animate in
+      requestAnimationFrame(() => {
+        el.style.opacity = '1';
+        el.style.transform = 'translateY(0) scale(1)';
+      });
+
+      let seconds = ttlSeconds;
+      const cdEl = el.querySelector('#att-success-countdown');
+      cdEl.textContent = 'Closing in ' + seconds + 's…';
+      if (state._timer) clearInterval(state._timer);
+      state._timer = setInterval(() => {
+        seconds--;
+        if (seconds <= 0) { hide(); return; }
+        cdEl.textContent = 'Closing in ' + seconds + 's…';
+      }, 1000);
+    }
+
+    WIN.AttendanceSuccessModal = {
+      showSuccess: (data, ttlSeconds) => show(data, 'success', ttlSeconds || 4),
+      showError: (data, ttlSeconds) => show(data, 'error', ttlSeconds || 4),
+      hide,
+    };
+  })();
+
+  // --- Unified RFID global listener => show modal ---
+  document.addEventListener('rfid:success', function (e) {
+    try {
+      if (window.AttendanceSuccessModal && typeof window.AttendanceSuccessModal.showSuccess === 'function') {
+        const data = e.detail || {};
+        // Some backends may return unregistered via res.ok false (handled by rfid:error),
+        // but in case success payload contains an error marker, treat as error.
+        if (data && (data.error || data.detail === 'RFID card not recognized' || data.unregistered === true)) {
+          window.AttendanceSuccessModal.showError(data);
+        } else {
+          window.AttendanceSuccessModal.showSuccess(data);
+        }
+      }
+    } catch {}
+  });
+
+  document.addEventListener('rfid:error', function (e) {
+    try {
+      if (window.AttendanceSuccessModal && typeof window.AttendanceSuccessModal.showError === 'function') {
+        const detail = (e && e.detail) || {};
+        window.AttendanceSuccessModal.showError(detail);
+      }
+    } catch {}
+  });
 
   window.Shared = Shared;
   App.refreshNotifBadge = Shared.refreshNotifBadge;

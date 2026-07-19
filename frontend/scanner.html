@@ -867,22 +867,45 @@
     const confirmBadge   = document.getElementById('confirm-badge');
     const confirmCountdown = document.getElementById('confirm-countdown');
 
-    function showConfirmation(data) {
+    function showConfirmation(data, opts) {
+      opts = opts || {};
+      const method = opts.method || 'attendance';
+
+      // --- Debug: UI render execution ---
+      console.log('[RFID/CONFIRM] Rendering confirmation overlay', { method: method, user_id: data && data.user_id, has_photo_url: !!(data && data.photo_url) });
+
       confirmPhoto.src = data.photo_url || '/static/images/default-avatar.png';
-      confirmName.textContent = data.user_name || 'Student';
+      confirmName.textContent = data.user_name || (data.first_name && data.last_name ? (data.first_name + ' ' + data.last_name).trim() : 'Student');
       confirmId.textContent = 'ID: ' + (data.user_id || '');
+
+      // Build detailed info (RFID requirement: role + section/department + course/year)
       var info = [];
+      if (data.role) info.push('Role: ' + data.role);
       if (data.section) info.push('Section: ' + data.section);
+      if (data.department_section) info.push(data.department_section);
       if (data.course) info.push(data.course);
       if (data.year_level) info.push('Year ' + data.year_level);
-      if (data.department_section) info.push(data.department_section);
-      confirmInfo.textContent = info.join(' · ');
-      confirmTime.textContent = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
-      var action = data.scan_action || 'in';
+      confirmInfo.textContent = info.length ? info.join(' · ') : '—';
+
+      // Time: show scan timestamp + time in/out
+      const scanTs = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
+      const action = data.scan_action || 'in';
+      const inTime = data.time_in || '--';
+      const outTime = data.time_out || '--';
+
+      // Keep existing c-time element for timestamp, but include in/out status
+      confirmTime.textContent = scanTs + ' · ' + (action === 'out' ? ('Time Out: ' + outTime) : ('Time In: ' + inTime));
+
       var isLate = data.attendance_status === 'LATE';
       if (action === 'out') { confirmBadge.textContent = '✓ Time Out Logged'; confirmBadge.style.color = '#22c55e'; }
       else if (isLate) { confirmBadge.textContent = '⏰ Late Check-in'; confirmBadge.style.color = '#f59e0b'; }
       else { confirmBadge.textContent = '✓ Time In Logged'; confirmBadge.style.color = '#22c55e'; }
+
+      // Success message alignment for RFID taps
+      if (method === 'rfid') {
+        confirmBadge.textContent = confirmBadge.textContent;
+      }
+
       confirmOverlay.classList.add('visible');
       var seconds = 4;
       confirmCountdown.textContent = 'Closing in ' + seconds + 's…';
@@ -1084,12 +1107,8 @@
     // ── RFID event handlers ──
     document.addEventListener('rfid:success', function (e) {
       var data = e.detail;
-      var uid = data.user_id;
-      if (!isOnCooldown(uid)) {
-        setCooldown(uid);
-        addResult(data, true, 'rfid', {});
-        showConfirmation(data);
-      }
+      addResult(data, true, 'rfid', {});
+      showConfirmation(data);
     });
 
     document.addEventListener('rfid:error', function (e) {

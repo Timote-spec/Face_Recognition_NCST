@@ -66,6 +66,7 @@
   }
 
   async function processScan(uid) {
+    console.log('[RFID] processScan start', { uid: uid, scanning: scanning });
     if (scanning || !uid) return;
     scanning = true;
 
@@ -74,13 +75,16 @@
     playBeep(true);
 
     try {
+      console.log('[RFID] sending request', { endpoint: API_BASE + '/attendance/rfid', uid: uid });
       var res = await fetch(API_BASE + '/attendance/rfid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rfid_uid: uid }),
       });
+      console.log('[RFID] response received', { status: res.status, ok: res.ok });
       var ct = res.headers.get('content-type') || '';
       var data = ct.includes('application/json') ? await res.json() : null;
+      console.log('[RFID] response parsed', { contentType: ct, hasJson: !!data, dataKeys: data && typeof data === 'object' ? Object.keys(data) : null });
 
       if (!res.ok) {
         var detail = (data && data.detail) || 'Scan failed';
@@ -101,8 +105,8 @@
             detail: Object.assign({}, data, { remaining: getRemainingCooldown(userId) })
           }));
         } else {
-          setCooldown(userId);
           document.dispatchEvent(new CustomEvent('rfid:success', { detail: data }));
+          setCooldown(userId);
         }
       }
     } catch (e) {
