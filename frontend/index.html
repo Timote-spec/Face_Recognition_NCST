@@ -17,7 +17,13 @@
         <div><span class="brand-name" id="brand-name">NCST</span><span class="brand-sub">Face Recognition</span></div>
       </div>
       <nav class="sidebar-nav" id="sidebar-nav"></nav>
-      <div class="sidebar-footer">NCST Attendance · v1.0.0</div>
+      <div class="sidebar-footer">
+        <a href="#" id="sidebar-logout" style="display:flex;align-items:center;gap:.5rem;color:rgba(255,255,255,.65);text-decoration:none;font-size:.8rem;padding:.2rem 0;transition:color .15s;" title="Sign out">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span>Sign out</span>
+        </a>
+        <div style="margin-top:.25rem;opacity:.65">NCST Attendance · v1.0.0</div>
+      </div>
     </aside>
 
     <div class="main">
@@ -61,6 +67,15 @@
         App.stopCamera(); App.clear(); window.location.href = "/login";
       });
       App.buildSidebar();
+      // Wire sidebar logout link
+      const sbLogout = document.getElementById("sidebar-logout");
+      if (sbLogout) {
+        sbLogout.addEventListener("click", async function (e) {
+          e.preventDefault();
+          try { await App.api("/auth/logout", { method: "POST" }); } catch (e2) {}
+          App.stopCamera(); App.clear(); window.location.href = "/login";
+        });
+      }
       App.router.init();
     });
   </script>

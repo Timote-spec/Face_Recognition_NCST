@@ -1,39 +1,32 @@
-# UI/UX Redesign Audit — Implementation TODO
+# Navigation Icon Redesign TODO
 
-## Step 1: Global UI system improvements (safe)
-- [x] Add focus-visible ring styles for buttons, inputs, links.
-- [x] Make `table.data thead th` sticky.
-- [x] Add desktop sidebar collapsed mode styles + smooth animation.
+## Phase 1: Replace All Icon SVG Paths with Lucide Style ✅
+- [x] Update all ICON object paths in `core.js` with clean, modern Lucide-style paths
+- [x] Add new icon keys for complete mapping (LayoutDashboard, GraduationCap, etc.)
+- [x] Keep all existing icon keys for backward compatibility
 
+## Phase 2: Update NAV Object Icon References ✅
+- [x] Update ADMIN navigation icons (layoutDashboard, users, userCheck, calendarCheck, badgeCheck, megaphone, fileText, scanFace, creditCard, settings)
+- [x] Update STAFF navigation icons (layoutDashboard, calendarCheck, graduationCap, megaphone, scanFace, userCircle)
+- [x] Update FACULTY navigation icons (layoutDashboard, calendarCheck, graduationCap, megaphone, scanFace, userCircle)
+- [x] Update STUDENT navigation icons (layoutDashboard, clock3, megaphone, bell, userCircle, scanFace)
 
-## Step 2: Dashboard animated counters
-- [ ] Implement `App.animateNumber()` helper (or in shared.js) using `requestAnimationFrame`.
-- [ ] Apply animated counters to:
-  - [ ] Student overview stat cards
-  - [ ] Staff/Admin overview stat cards
+## Phase 3: CSS UI Improvements ✅
+- [x] Add smooth transition animations (background, color, transform, box-shadow)
+- [x] Add active page indicator (left accent bar via ::before pseudo-element)
+- [x] Better spacing between icons and labels (gap increased from .65rem to .75rem)
+- [x] Subtle hover effects (translateX(2px), SVG scale(1.08))
+- [x] Active state accent indicator bar (white accent bar)
+- [x] Ensure icons look good in expanded/collapsed mode
 
-## Step 3: Tables: loading/empty/search consistency
-- [ ] Add table-wrap scrollbar polish.
-- [ ] Add consistent empty/loading states where JS already renders them.
+## Phase 4: Sidebar Footer Enhanced ✅
+- [x] Added Logout icon + link to sidebar footer
+- [x] Wired click handler for sidebar logout
 
-## Step 4: Button standardization
-- [ ] Ensure consistent focus/hover/active states across all `.btn*`.
+## Phase 5: Verify All Roles ✅
+- [x] Verify ADMIN navigation (layoutDashboard, users, userCheck, calendarCheck, badgeCheck, megaphone, fileText, scanFace, creditCard, settings) ✅
+- [x] Verify STAFF navigation (layoutDashboard, calendarCheck, graduationCap, megaphone, scanFace, userCircle) ✅
+- [x] Verify FACULTY navigation (layoutDashboard, calendarCheck, graduationCap, megaphone, scanFace, userCircle) ✅
+- [x] Verify STUDENT navigation (layoutDashboard, clock3, megaphone, bell, userCircle, scanFace) ✅
 
-## Step 5: Form icon standardization (JS-generated)
-- [ ] Add icon-inside-input utility classes in CSS.
-- [ ] Update key JS-generated modal/form templates in shared.js + admin.js to use the icon classes.
-
-## Step 6: Scanner pages visual consistency
-- [ ] Move duplicated kiosk styles into shared CSS (only if safe).
-- [ ] Keep scanner JS logic untouched.
-
-## Step 7: Notification dropdown audit
-- [ ] Verify notification UI meets requirements (dropdown, unread states, animation).
-
-## Step 8: Audit sweep
-
-## Step 9: Testing + reporting
-- [ ] Manually open key routes and validate no feature breaks.
-- [ ] Run available automated tests.
-- [ ] Generate list of modified files.
 
